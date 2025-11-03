@@ -14,7 +14,6 @@ return function(main, settings)
 
 		Args = {},
 		Function = function(speaker, _)
-			print("[CoreCommands] Running 'logs' for", speaker and speaker.Name or "?")
 
 			local logs = main.Logs or {}
 			local max = (main.MaxLogs or 50)
@@ -25,7 +24,6 @@ return function(main, settings)
 			local evt = main.Remotes and main.Remotes.AdminLogs
 			if evt and evt:IsA("RemoteEvent") then
 				evt:FireClient(speaker, logs)
-				print("[CoreCommands] 'logs' sent", #logs, "entries via AdminLogs")
 			else
 				warn("[CoreCommands] AdminLogs RemoteEvent missing; ensure Remotes.provision ran.")
 			end
@@ -42,8 +40,6 @@ return function(main, settings)
 
 		Args = {},
 		Function = function(speaker, args)
-			print("[CoreCommands] Running 'kick' for", speaker and speaker.Name or "?")
-
 			local function sendMessage(kind, text)
 				local evt = main.Remotes and main.Remotes.AdminMessage
 				if evt and evt:IsA("RemoteEvent") then
@@ -111,7 +107,6 @@ return function(main, settings)
 			end)
 			if okKick then
 				sendMessage("info", "Kicked " .. target.Name .. ".")
-				print("[CoreCommands] Kicked:", target.Name, "by", speaker and speaker.Name or "?")
 			else
 				sendMessage("error", "Kick failed: " .. tostring(errKick))
 				warn("[CoreCommands] Kick failed:", tostring(errKick))
@@ -508,13 +503,11 @@ return function(main, settings)
 
 		Args = {},
 		Function = function(speaker, _)
-			print("[CoreCommands] Running 'rank' for", speaker and speaker.Name or "?")
 			local payload = main.Utils.buildRankPayload(speaker, settings)
 
 			local evt = main.Remotes and main.Remotes.AdminRanks
 			if evt and evt:IsA("RemoteEvent") then
 				evt:FireClient(speaker, payload)
-				print("[CoreCommands] 'rank' payload sent via AdminRanks")
 			else
 				warn("[CoreCommands] AdminRanks RemoteEvent missing; ensure Remotes.provision ran.")
 			end
@@ -590,8 +583,8 @@ return function(main, settings)
 	})
 
 	table.insert(commands, {
-		Name = "m",
-		Aliases = {"msg", "announce", "broadcast"},
+		Name = "message",
+		Aliases = {"msg", "announce", "broadcast","m"},
 		Prefixes = { settings.Prefix },
 		Rank = 3,
 		RankLock = false,
@@ -607,7 +600,7 @@ return function(main, settings)
 			end
 
 			if typeof(args) ~= "table" or #args < 1 then
-				msgSelf("error", "Usage: ;m <message>")
+				msgSelf("error", "Usage: ;message <message>")
 				return
 			end
 
@@ -622,10 +615,16 @@ return function(main, settings)
 				text = string.sub(text, 1, 300)
 			end
 
+			local filtered, filterErr = main.Utils.filterBroadcastText(speaker, text)
+			if not filtered then
+				msgSelf("error", "Message blocked by content filter.")
+				return
+			end
+
 			local payload = {
 				title = "Message From " .. speaker.Name,
 				subtitle = "Server Message",
-				text = text,
+				text = filtered,
 				duration = 5,
 
 				senderUserId = speaker and speaker.UserId or nil,
@@ -641,7 +640,6 @@ return function(main, settings)
 				return
 			end
 
-			print("[CoreCommands] Broadcast announcement by", speaker and speaker.Name or "?", "text:", text)
 		end,
 	})
 
@@ -678,8 +676,14 @@ return function(main, settings)
 				message = string.sub(message, 1, 300)
 			end
 
+			local filteredMsg, filterErr = main.Utils.filterBroadcastText(speaker, message)
+			if not filteredMsg then
+				msgSelf("error", "Message blocked by content filter.")
+				return
+			end
+
 			local who = speaker and tostring(speaker.Name) or "Admin"
-			local text = who .. " : " .. message
+			local text = who .. " : " .. filteredMsg
 
 			local payload = {
 				gui = "Hint",
@@ -696,7 +700,6 @@ return function(main, settings)
 				return
 			end
 
-			print("[CoreCommands] Broadcast hint by", speaker and speaker.Name or "?", "text:", text)
 		end,
 	})
 
@@ -1169,7 +1172,7 @@ return function(main, settings)
 				target = pl
 			end
 
-			local ok, err = main.Utils(target, "R15")
+			local ok, err = main.Utils.convertCharacterToRig(target, "R15")
 			if not ok then
 				msgSelf("error", tostring(err or "Failed to convert to R15."))
 				return
@@ -1226,71 +1229,7 @@ return function(main, settings)
 			end
 
 			local function giveBTools()
-				local tool = script:WaitForChild("Building Tools")
-				
-				tool:Clone().Parent = backpack
-			end
-
-			local ok, err = pcall(giveBTools)
-			if not ok then
-				msgSelf("error", "Failed to give BTool: " .. tostring(err))
-				return
-			end
-
-			if main and typeof(main.addLog) == "function" then
-				pcall(function() main.addLog(speaker, ";btools " .. selectionArg) end)
-			end
-
-			msgSelf("info", "Gave BTool to " .. tostring(target and target.Name or "player") .. ".")
-		end,
-	})
-	
-	table.insert(commands, {
-		Name = "btools",
-		Aliases = {"f3x", "buildingtools"},
-		Prefixes = { settings.Prefix },
-		Rank = 2,
-		RankLock = false,
-		Tags = {"tools"},
-
-		Args = {},
-		Function = function(speaker, args)
-			local function msgSelf(kind, text)
-				local evt = main.Remotes and main.Remotes.AdminMessage
-				if evt and evt:IsA("RemoteEvent") then
-					evt:FireClient(speaker, { header = "BTools", kind = kind, text = text })
-				end
-			end
-
-			local selectionArg = (#args >= 1) and tostring(args[1]) or "me"
-			local target
-			local selLower = string.lower(selectionArg)
-			if selLower == "me" or selLower == "self" or selLower == "" then
-				target = speaker
-			else
-				local pl, findErr = main.Utils.findPlayerByNameOrId(selectionArg)
-				if not pl then
-					local kind = (findErr == "Ambiguous name") and "warn" or "error"
-					msgSelf(kind, findErr or "Player not found or not online.")
-					return
-				end
-				target = pl
-			end
-
-			local char = target.Character
-			if not char then
-				msgSelf("error", "Target has no character loaded.")
-				return
-			end
-
-			local backpack = target:FindFirstChildOfClass("Backpack")
-			if not backpack then
-				msgSelf("error", "No backpack found for player.")
-				return
-			end
-
-			local function giveBTools()
-				local tool = script:WaitForChild("Building Tools")
+				local tool = script.Gears:WaitForChild("Building Tools")
 
 				tool:Clone().Parent = backpack
 			end
@@ -1307,12 +1246,8 @@ return function(main, settings)
 
 			msgSelf("info", "Gave BTool to " .. tostring(target and target.Name or "player") .. ".")
 		end,
-		
-		
-		
-		
 	})
-	
+
 	table.insert(commands, {
 		Name = "sit",
 		Aliases = {"seat", "sitdown"},
@@ -1375,7 +1310,7 @@ return function(main, settings)
 		end,
 
 	})
-	
+
 	table.insert(commands, {
 		Name = "doge",
 		Aliases = {},
@@ -1393,10 +1328,20 @@ return function(main, settings)
 			end
 
 			local selectionArg = (#args >= 1) and tostring(args[1]) or "me"
-			local target
+			local targets = {}
 			local selLower = string.lower(selectionArg)
+
+			-- Determine who to target
 			if selLower == "me" or selLower == "self" or selLower == "" then
-				target = speaker
+				table.insert(targets, speaker)
+			elseif selLower == "all" then
+				targets = game.Players:GetPlayers()
+			elseif selLower == "others" then
+				for _, plr in ipairs(game.Players:GetPlayers()) do
+					if plr ~= speaker then
+						table.insert(targets, plr)
+					end
+				end
 			else
 				local pl, findErr = main.Utils.findPlayerByNameOrId(selectionArg)
 				if not pl then
@@ -1404,65 +1349,53 @@ return function(main, settings)
 					msgSelf(kind, findErr or "Player not found or not online.")
 					return
 				end
-				target = pl
+				table.insert(targets, pl)
 			end
 
-			local char = target.Character
-			if not char then
-				msgSelf("error", "Target has no character loaded.")
-				return
-			end
+			-- Apply Doge outfit to each target
+			for _, target in ipairs(targets) do
+				local char = target.Character
+				if not char then
+					msgSelf("error", target.Name .. " has no character loaded.")
+				else
+					local ok, err = pcall(function()
+						-- Remove existing accessories
+						for _, accessory in ipairs(char:GetChildren()) do
+							if accessory:IsA("Accessory") then
+								accessory:Destroy()
+							end
+						end
 
-			local ok, err = pcall(function()
-				-- Remove accessories
-				for _, accessory in ipairs(char:GetChildren()) do
-					if accessory:IsA("Accessory") then
-						accessory:Destroy()
+						-- Apply shirt and pants
+						local shirt = char:FindFirstChildOfClass("Shirt") or Instance.new("Shirt", char)
+						local pants = char:FindFirstChildOfClass("Pants") or Instance.new("Pants", char)
+
+						shirt.ShirtTemplate = "http://www.roblox.com/asset/?id=7374514554"
+						pants.PantsTemplate = "http://www.roblox.com/asset/?id=6601037954"
+
+						-- Add Doge accessory
+						local dogeModel = script.Accessories:FindFirstChild("DOGE")
+						if dogeModel and dogeModel:IsA("Accessory") then
+							dogeModel:Clone().Parent = char
+						else
+							warn("DOGE accessory not found or invalid.")
+						end
+					end)
+
+					if not ok then
+						msgSelf("error", "Failed to apply Doge outfit to " .. target.Name .. ": " .. tostring(err))
+					else
+						msgSelf("info", target.Name .. " has become Doge!")
 					end
 				end
-
-				-- Change shirt and pants
-				local shirt = char:FindFirstChildOfClass("Shirt")
-				local pants = char:FindFirstChildOfClass("Pants")
-
-				if not shirt then
-					shirt = Instance.new("Shirt")
-					shirt.Parent = char
-				end
-				if not pants then
-					pants = Instance.new("Pants")
-					pants.Parent = char
-				end
-
-				shirt.ShirtTemplate = "http://www.roblox.com/asset/?id=7374514554"
-				pants.PantsTemplate = "http://www.roblox.com/asset/?id=6601037954"
-
-				-- Add Doge accessory
-				local dogeModel = script:FindFirstChild("DOGE")
-				if dogeModel and dogeModel:IsA("Accessory") then
-					local clone = dogeModel:Clone()
-					clone.Parent = char
-				else
-					warn("DOGE accessory not found inside the script or not an Accessory.")
-				end
-			end)
-
-			if not ok then
-				msgSelf("error", "Failed to apply Doge outfit: " .. tostring(err))
-				return
 			end
 
 			if main and typeof(main.addLog) == "function" then
-				pcall(function()
-					main.addLog(speaker, ";doge " .. selectionArg)
-				end)
+				pcall(function() main.addLog(speaker, ";doge " .. selectionArg) end)
 			end
-
-			msgSelf("info", tostring(target and target.Name or "Player") .. " has become Doge!")
 		end,
-
 	})
-	
+
 	table.insert(commands, {
 		Name = "notify",
 		Aliases = {"msg", "message"},
@@ -1496,7 +1429,7 @@ return function(main, settings)
 		end,
 
 	})
-	
+
 	table.insert(commands, {
 		Name = "respawn",
 		Aliases = {"reload","re","reset"},
@@ -1506,34 +1439,57 @@ return function(main, settings)
 		Tags = {"Character"},
 		Args = {},
 		Function = function(speaker, args)
-			if speaker and speaker:FindFirstChild("PlayerGui") then
-				local player = speaker
-				local character = player.Character
-				if character then
-					-- Save current position
-					local pos = character:FindFirstChild("HumanoidRootPart") and character.HumanoidRootPart.Position
-					-- Destroy character to force respawn
-					player.Character = nil
-					player:LoadCharacter()
-					-- Optional: move to previous position after respawn
-					if pos then
-						local newChar = player.Character
-						if newChar and newChar:FindFirstChild("HumanoidRootPart") then
-							newChar.HumanoidRootPart.CFrame = CFrame.new(pos)
-						end
-					end
-				end
-
-				if main and typeof(main.addLog) == "function" then
-					pcall(function()
-						main.addLog(speaker, ";respawn")
-					end)
+			local function msgSelf(kind, text)
+				local evt = main.Remotes and main.Remotes.AdminMessage
+				if evt and evt:IsA("RemoteEvent") then
+					evt:FireClient(speaker, { header = "respawn", kind = kind, text = text })
 				end
 			end
-		end,
 
+			local selectionArg = (#args >= 1) and tostring(args[1]) or "me"
+			local targets = {}
+			local selLower = string.lower(selectionArg)
+
+			-- Determine who to respawn
+			if selLower == "me" or selLower == "self" or selLower == "" then
+				table.insert(targets, speaker)
+			elseif selLower == "all" then
+				targets = game.Players:GetPlayers()
+			elseif selLower == "others" then
+				for _, plr in ipairs(game.Players:GetPlayers()) do
+					if plr ~= speaker then
+						table.insert(targets, plr)
+					end
+				end
+			else
+				local pl, findErr = main.Utils.findPlayerByNameOrId(selectionArg)
+				if not pl then
+					local kind = (findErr == "Ambiguous name") and "warn" or "error"
+					msgSelf(kind, findErr or "Player not found or not online.")
+					return
+				end
+				table.insert(targets, pl)
+			end
+
+			for _, target in ipairs(targets) do
+				local char = target.Character
+				local pos = (char and char:FindFirstChild("HumanoidRootPart")) and char.HumanoidRootPart.Position
+				target:LoadCharacter()
+				if pos then
+					local newChar = target.Character
+					if newChar and newChar:FindFirstChild("HumanoidRootPart") then
+						newChar.HumanoidRootPart.CFrame = CFrame.new(pos)
+					end
+				end
+				msgSelf("info", "Respawned " .. target.Name .. ".")
+			end
+
+			if main and typeof(main.addLog) == "function" then
+				pcall(function() main.addLog(speaker, ";respawn " .. selectionArg) end)
+			end
+		end,
 	})
-	
+
 	table.insert(commands, {
 		Name = "sword",
 		Aliases = {"linkedsword"},
@@ -1552,10 +1508,13 @@ return function(main, settings)
 			end
 
 			local selectionArg = (#args >= 1) and tostring(args[1]) or "me"
-			local target
+			local targets = {}
+
 			local selLower = string.lower(selectionArg)
 			if selLower == "me" or selLower == "self" or selLower == "" then
-				target = speaker
+				table.insert(targets, speaker)
+			elseif selLower == "all" then
+				targets = game.Players:GetPlayers()
 			else
 				local pl, findErr = main.Utils.findPlayerByNameOrId(selectionArg)
 				if not pl then
@@ -1563,41 +1522,37 @@ return function(main, settings)
 					msgSelf(kind, findErr or "Player not found or not online.")
 					return
 				end
-				target = pl
+				table.insert(targets, pl)
 			end
 
-			local char = target.Character
-			if not char then
-				msgSelf("error", "Target has no character loaded.")
-				return
-			end
-
-			local backpack = target:FindFirstChildOfClass("Backpack")
-			if not backpack then
-				msgSelf("error", "No backpack found for player.")
-				return
-			end
-
-			local function giveSword()
-				local tool = script:WaitForChild("Gears"):WaitForChild("ClassicSword")
-
-				tool:Clone().Parent = backpack
-			end
-
-			local ok, err = pcall(giveSword)
-			if not ok then
-				msgSelf("error", "Failed to give sword: " .. tostring(err))
-				return
+			for _, target in ipairs(targets) do
+				local char = target.Character
+				if not char then
+					msgSelf("error", "Target " .. target.Name .. " has no character loaded.")
+				else
+					local backpack = target:FindFirstChildOfClass("Backpack")
+					if not backpack then
+						msgSelf("error", "No backpack found for " .. target.Name .. ".")
+					else
+						local ok, err = pcall(function()
+							local tool = script:WaitForChild("Gears"):WaitForChild("ClassicSword")
+							tool:Clone().Parent = backpack
+						end)
+						if not ok then
+							msgSelf("error", "Failed to give sword to " .. target.Name .. ": " .. tostring(err))
+						else
+							msgSelf("info", "Gave sword to " .. target.Name .. ".")
+						end
+					end
+				end
 			end
 
 			if main and typeof(main.addLog) == "function" then
 				pcall(function() main.addLog(speaker, ";sword " .. selectionArg) end)
 			end
-
-			msgSelf("info", "Gave sword to " .. tostring(target and target.Name or "player") .. ".")
 		end,
 	})
-	
+
 	table.insert(commands, {
 		Name = "kill",
 		Aliases = {},
@@ -1608,16 +1563,53 @@ return function(main, settings)
 
 		Args = {},
 		Function = function(speaker, args)
-			if speaker and speaker.Character and speaker.Character:FindFirstChild("Humanoid") then
-				speaker.Character.Humanoid.Health = 0
-				if main and typeof(main.addLog) == "function" then
-					pcall(function() main.addLog(speaker, ";kill") end)
+			local function msgSelf(kind, text)
+				local evt = main.Remotes and main.Remotes.AdminMessage
+				if evt and evt:IsA("RemoteEvent") then
+					evt:FireClient(speaker, { header = "kill", kind = kind, text = text })
 				end
 			end
-		end,
 
+			local selectionArg = (#args >= 1) and tostring(args[1]) or "me"
+			local targets = {}
+			local selLower = string.lower(selectionArg)
+
+			if selLower == "me" or selLower == "self" or selLower == "" then
+				table.insert(targets, speaker)
+			elseif selLower == "all" then
+				targets = game.Players:GetPlayers()
+			elseif selLower == "others" then
+				for _, plr in ipairs(game.Players:GetPlayers()) do
+					if plr ~= speaker then
+						table.insert(targets, plr)
+					end
+				end
+			else
+				local pl, findErr = main.Utils.findPlayerByNameOrId(selectionArg)
+				if not pl then
+					local kind = (findErr == "Ambiguous name") and "warn" or "error"
+					msgSelf(kind, findErr or "Player not found or not online.")
+					return
+				end
+				table.insert(targets, pl)
+			end
+
+			for _, target in ipairs(targets) do
+				local humanoid = target.Character and target.Character:FindFirstChildOfClass("Humanoid")
+				if humanoid then
+					humanoid.Health = 0
+					msgSelf("info", "Killed " .. target.Name .. ".")
+				else
+					msgSelf("warn", target.Name .. " has no humanoid or character.")
+				end
+			end
+
+			if main and typeof(main.addLog) == "function" then
+				pcall(function() main.addLog(speaker, ";kill " .. selectionArg) end)
+			end
+		end,
 	})
-	
+
 	table.insert(commands, {
 		Name = "explode",
 		Aliases = {},
@@ -1649,54 +1641,297 @@ return function(main, settings)
 
 	})
 	-- Speed Command
-table.insert(commands, {
-	Name = "speed",
-	Aliases = {"walkspeed"},
-	Prefixes = { settings.Prefix },
-	Rank = 2,
-	RankLock = false,
-	Tags = {"movement"},
-	Args = {"number"},
-	Function = function(speaker, args)
-		local speed = tonumber(args[1])
-		if not speed then
-			return
-		end
-
-		if speaker and speaker.Character and speaker.Character:FindFirstChild("Humanoid") then
-			speaker.Character.Humanoid.WalkSpeed = speed
-			if main and typeof(main.addLog) == "function" then
-				pcall(function() main.addLog(speaker, ";speed "..speed) end)
+	table.insert(commands, {
+		Name = "speed",
+		Aliases = {"walkspeed"},
+		Prefixes = { settings.Prefix },
+		Rank = 2,
+		RankLock = false,
+		Tags = {"movement"},
+		Args = {"number"},
+		Function = function(speaker, args)
+			local speed = tonumber(args[1])
+			if not speed then
+				return
 			end
-		end
-	end,
 
-})
-
--- Jump Command
-table.insert(commands, {
-	Name = "jump",
-	Aliases = {"jumppower"},
-	Prefixes = { settings.Prefix },
-	Rank = 2,
-	RankLock = false,
-	Tags = {"movement"},
-	Args = {"number"},
-	Function = function(speaker, args)
-		local jumpPower = tonumber(args[1])
-		if not jumpPower then
-			return
-		end
-
-		if speaker and speaker.Character and speaker.Character:FindFirstChild("Humanoid") then
-			speaker.Character.Humanoid.JumpPower = jumpPower
-			if main and typeof(main.addLog) == "function" then
-				pcall(function() main.addLog(speaker, ";jump "..jumpPower) end)
+			if speaker and speaker.Character and speaker.Character:FindFirstChild("Humanoid") then
+				speaker.Character.Humanoid.WalkSpeed = speed
+				if main and typeof(main.addLog) == "function" then
+					pcall(function() main.addLog(speaker, ";speed "..speed) end)
+				end
 			end
-		end
-	end,
+		end,
 
-})
+	})
+
+	-- Jump Command
+	table.insert(commands, {
+		Name = "jump",
+		Aliases = {"jumppower"},
+		Prefixes = { settings.Prefix },
+		Rank = 2,
+		RankLock = false,
+		Tags = {"movement"},
+		Args = {"number"},
+		Function = function(speaker, args)
+			local jumpPower = tonumber(args[1])
+			if not jumpPower then
+				return
+			end
+
+			if speaker and speaker.Character and speaker.Character:FindFirstChild("Humanoid") then
+				speaker.Character.Humanoid.JumpPower = jumpPower
+				if main and typeof(main.addLog) == "function" then
+					pcall(function() main.addLog(speaker, ";jump "..jumpPower) end)
+				end
+			end
+		end,
+
+		table.insert(commands, {
+			Name = "hat",
+			Aliases = {},
+			Prefixes = { settings.Prefix },
+			Rank = 2,
+			RankLock = false,
+			Tags = {"utility", "hat"},
+			Args = {},
+			Function = function(speaker, args)
+				local function msgSelf(kind, text)
+					local evt = main.Remotes and main.Remotes.AdminMessage
+					if evt and evt:IsA("RemoteEvent") then
+						evt:FireClient(speaker, { header = "Hat", kind = kind, text = text })
+					end
+				end
+
+				-- Determine if the first argument is a number (hat ID) or player
+				local hatId, target
+				if #args == 0 then
+					msgSelf("error", "You must provide a hat Asset ID.")
+					return
+				elseif #args == 1 then
+					hatId = tonumber(args[1])
+					target = speaker
+				else
+					local pl, findErr = main.Utils.findPlayerByNameOrId(args[1])
+					if not pl then
+						local kind = (findErr == "Ambiguous name") and "warn" or "error"
+						msgSelf(kind, findErr or "Player not found or not online.")
+						return
+					end
+					target = pl
+					hatId = tonumber(args[2])
+				end
+
+				if not hatId then
+					msgSelf("error", "Invalid hat Asset ID.")
+					return
+				end
+
+				if not target.Character or not target.Character:FindFirstChild("Humanoid") then
+					msgSelf("error", "Target player has no character loaded.")
+					return
+				end
+
+				local success, hatModel = pcall(function()
+					return game:GetService("InsertService"):LoadAsset(hatId)
+				end)
+				if not success or not hatModel then
+					msgSelf("error", "Failed to load hat with ID: " .. tostring(hatId))
+					return
+				end
+
+				for _, item in pairs(hatModel:GetChildren()) do
+					if item:IsA("Accessory") then
+						item.Parent = target.Character
+					end
+				end
+				hatModel:Destroy()
+
+				if main and typeof(main.addLog) == "function" then
+					pcall(function() main.addLog(speaker, ";hat " .. target.Name .. " " .. tostring(hatId)) end)
+				end
+				msgSelf("info", "Equipped hat ID " .. hatId .. " on " .. target.Name)
+			end,
+
+		})
+	})
+
+	table.insert(commands, {
+		Name = "gear",
+		Aliases = {},
+		Prefixes = { settings.Prefix },
+		Rank = 2,
+		RankLock = false,
+		Tags = {"utility", "gear"},
+		Args = {},
+		Function = function(speaker, args)
+			local function msgSelf(kind, text)
+				local evt = main.Remotes and main.Remotes.AdminMessage
+				if evt and evt:IsA("RemoteEvent") then
+					evt:FireClient(speaker, { header = "Gear", kind = kind, text = text })
+				end
+			end
+
+			-- Determine if the first argument is a number (gear ID) or player
+			local gearId, target
+			if #args == 0 then
+				msgSelf("error", "You must provide a Gear ID.")
+				return
+			elseif #args == 1 then
+				gearId = tonumber(args[1])
+				target = speaker
+			else
+				local pl, findErr = main.Utils.findPlayerByNameOrId(args[1])
+				if not pl then
+					local kind = (findErr == "Ambiguous name") and "warn" or "error"
+					msgSelf(kind, findErr or "Player not found or not online.")
+					return
+				end
+				target = pl
+				gearId = tonumber(args[2])
+			end
+
+			if not gearId then
+				msgSelf("error", "Invalid Gear ID.")
+				return
+			end
+
+			if not target.Backpack then
+				msgSelf("error", "Target player has no Backpack.")
+				return
+			end
+
+			local success, gearModel = pcall(function()
+				return game:GetService("InsertService"):LoadAsset(gearId)
+			end)
+			if not success or not gearModel then
+				msgSelf("error", "Failed to load gear with ID: " .. tostring(gearId))
+				return
+			end
+
+			for _, item in pairs(gearModel:GetChildren()) do
+				if item:IsA("Tool") then
+					item.Parent = target.Backpack
+				end
+			end
+			gearModel:Destroy()
+
+			if main and typeof(main.addLog) == "function" then
+				pcall(function() main.addLog(speaker, ";gear " .. target.Name .. " " .. tostring(gearId)) end)
+			end
+			msgSelf("info", "Added gear ID " .. gearId .. " to " .. target.Name .. "'s Backpack.")
+		end,
+
+	})
+
+	-- Enhanced Fling and Super Fling Commands with spinning effect
+	table.insert(commands, {
+		Name = "fling",
+		Aliases = {},
+		Prefixes = { settings.Prefix },
+		Rank = 1,
+		RankLock = false,
+		Tags = {"movement"},
+		Args = {},
+		Function = function(speaker, args)
+			if speaker and speaker.Character and speaker.Character:FindFirstChild("HumanoidRootPart") then
+				local hrp = speaker.Character.HumanoidRootPart
+
+				-- BodyVelocity for fling
+				local bv = Instance.new("BodyVelocity")
+				bv.Velocity = Vector3.new(math.random(-300,300), 250, math.random(-300,300))
+				bv.MaxForce = Vector3.new(1e6,1e6,1e6)
+				bv.P = 1e5
+				bv.Parent = hrp
+
+				-- BodyAngularVelocity for spinning
+				local bav = Instance.new("BodyAngularVelocity")
+				bav.AngularVelocity = Vector3.new(math.random(-20,20), math.random(-20,20), math.random(-20,20))
+				bav.MaxTorque = Vector3.new(1e6,1e6,1e6)
+				bav.P = 1e5
+				bav.Parent = hrp
+
+				game:GetService("Debris"):AddItem(bv, 0.7)
+				game:GetService("Debris"):AddItem(bav, 0.7)
+			end
+		end,
+
+	})
+
+	table.insert(commands, {
+		Name = "superfling",
+		Aliases = {},
+		Prefixes = { settings.Prefix },
+		Rank = 1,
+		RankLock = false,
+		Tags = {"movement"},
+		Args = {},
+		Function = function(speaker, args)
+			if speaker and speaker.Character and speaker.Character:FindFirstChild("HumanoidRootPart") then
+				local hrp = speaker.Character.HumanoidRootPart
+
+				local bv = Instance.new("BodyVelocity")
+				bv.Velocity = Vector3.new(math.random(-1000,1000), 1000, math.random(-1000,1000))
+				bv.MaxForce = Vector3.new(1e7,1e7,1e7)
+				bv.P = 1e6
+				bv.Parent = hrp
+
+				local bav = Instance.new("BodyAngularVelocity")
+				bav.AngularVelocity = Vector3.new(math.random(-100,100), math.random(-100,100), math.random(-100,100))
+				bav.MaxTorque = Vector3.new(1e7,1e7,1e7)
+				bav.P = 1e6
+				bav.Parent = hrp
+
+				game:GetService("Debris"):AddItem(bv, 1)
+				game:GetService("Debris"):AddItem(bav, 1)
+			end
+		end,
+
+	})
+
+	table.insert(commands, {
+		Name = "gravity",
+		Aliases = {"grav"},
+		Prefixes = { settings.Prefix },
+		Rank = 1,
+		RankLock = false,
+		Tags = {"movement", "environment"},
+		Args = {"number"},
+		Function = function(speaker, args)
+			local function msgSelf(kind, text)
+				local evt = main.Remotes and main.Remotes.AdminMessage
+				if evt and evt:IsA("RemoteEvent") then
+					evt:FireClient(speaker, { header = "Gravity", kind = kind, text = text })
+				end
+			end
+
+			-- Validate arguments
+			if #args == 0 then
+				msgSelf("error", "You must provide a gravity value (e.g. 50, 196.2).")
+				return
+			end
+
+			local newGravity = tonumber(args[1])
+			if not newGravity then
+				msgSelf("error", "Invalid gravity value. Please provide a number.")
+				return
+			end
+
+			-- Apply gravity
+			local workspace = game:GetService("Workspace")
+			workspace.Gravity = newGravity
+
+			-- Optional logging
+			if main and typeof(main.addLog) == "function" then
+				pcall(function()
+					main.addLog(speaker, ";gravity " .. tostring(newGravity))
+				end)
+			end
+
+			msgSelf("info", "Gravity has been set to " .. tostring(newGravity) .. ".")
+		end,
+	})
 
 	return commands
 end
