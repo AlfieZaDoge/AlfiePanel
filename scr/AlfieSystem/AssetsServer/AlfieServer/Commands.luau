@@ -644,8 +644,8 @@ return function(main, settings)
 	})
 
 	table.insert(commands, {
-		Name = "h",
-		Aliases = {"hint"},
+		Name = "hint",
+		Aliases = {"h"},
 		Prefixes = { settings.Prefix },
 		Rank = 3,
 		RankLock = false,
