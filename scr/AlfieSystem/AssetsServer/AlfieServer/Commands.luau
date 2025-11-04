@@ -683,7 +683,7 @@ return function(main, settings)
 			end
 
 			local who = speaker and tostring(speaker.Name) or "Admin"
-			local text = who .. " : " .. filteredMsg
+			local text = who .. ": " .. filteredMsg
 
 			local payload = {
 				gui = "Hint",
@@ -1997,6 +1997,167 @@ return function(main, settings)
 					end
 				end)
 			end)
+		end,
+	})
+	
+	table.insert(commands, {
+		Name = "Place",
+		Aliases = { "TeleportPlace", "tpplace" },
+		Prefixes = { settings.Prefix },
+		Rank = 4,
+		RankLock = false,
+		Tags = { "utility", "teleport" },
+		Args = {},
+		Function = function(speaker, args)
+			local function msgSelf(kind, text)
+				local evt = main.Remotes and main.Remotes.AdminMessage
+				if evt and evt:IsA("RemoteEvent") then
+					evt:FireClient(speaker, { header = "Place", kind = kind, text = text })
+				end
+			end
+
+			-- Validate arguments
+			if #args < 1 then
+				msgSelf("error", "Usage: :place <player|all> <PlaceId>")
+				return
+			end
+
+			local TeleportService = game:GetService("TeleportService")
+
+			local targetPlayers = {}
+			local placeId
+
+			-- Handle "all" first
+			if args[1]:lower() == "all" then
+				placeId = tonumber(args[2])
+				if not placeId then
+					msgSelf("error", "Invalid Place ID.")
+					return
+				end
+				targetPlayers = game.Players:GetPlayers()
+			else
+				-- Assume first arg is player, second is place ID
+				local pl, findErr = main.Utils.findPlayerByNameOrId(args[1])
+				if not pl then
+					local kind = (findErr == "Ambiguous name") and "warn" or "error"
+					msgSelf(kind, findErr or "Player not found or not online.")
+					return
+				end
+				table.insert(targetPlayers, pl)
+
+				placeId = tonumber(args[2])
+				if not placeId then
+					msgSelf("error", "Invalid Place ID.")
+					return
+				end
+			end
+
+			-- Universe check to prevent third-party teleports
+			local success, placeInfo = pcall(function()
+				return TeleportService:GetPlayerPlaceInstanceAsync(placeId)
+			end)
+
+			if not success or not placeInfo or not placeInfo.UniverseId then
+				msgSelf("error", "Failed to get place info. Check the Place ID.")
+				return
+			end
+
+			local currentUniverseId = game.GameId
+			if placeInfo.UniverseId ~= currentUniverseId then
+				msgSelf("error", "Cannot teleport to a third-party game. Target place is outside this universe.")
+				return
+			end
+
+			-- Confirm action
+			msgSelf("info", "Teleporting " .. (#targetPlayers == #game.Players:GetPlayers() and "all players" or tostring(#targetPlayers) .. " player(s)") .. " to place " .. tostring(placeId) .. "...")
+
+			-- Teleport everyone safely
+			for _, player in ipairs(targetPlayers) do
+				pcall(function()
+					TeleportService:Teleport(placeId, player)
+				end)
+			end
+
+			-- Log admin usage
+			if main and typeof(main.addLog) == "function" then
+				pcall(function()
+					main.addLog(speaker, ";place " .. (args[1] or "") .. " " .. tostring(placeId))
+				end)
+			end
+		end,
+	})
+	
+	table.insert(commands, {
+		Name = "globalmessage",
+		Aliases = {"globalannounce", "gannounce", "gmsg", "broadcastall","ga","globalmessage"},
+		Prefixes = { settings.Prefix },
+		Rank = 4,
+		RankLock = false,
+		Tags = {"moderation", "utility", "broadcast", "global"},
+
+		Args = {},
+		Function = function(speaker, args)
+			local MessagingService = game:GetService("MessagingService")
+
+			local function msgSelf(kind, text)
+				local evt = main.Remotes and main.Remotes.AdminMessage
+				if evt and evt:IsA("RemoteEvent") then
+					evt:FireClient(speaker, { header = "Global Announcement", kind = kind, text = text })
+				end
+			end
+
+			if typeof(args) ~= "table" or #args < 1 then
+				msgSelf("error", "Usage: ;globalmessage <message>")
+				return
+			end
+
+			local text = table.concat(args, " ")
+			text = string.gsub(text, "^%s*(.-)%s*$", "%1")
+			if text == "" then
+				msgSelf("error", "Provide a message to broadcast globally.")
+				return
+			end
+			if #text > 300 then
+				text = string.sub(text, 1, 300)
+			end
+
+			local filtered, filterErr = main.Utils.filterBroadcastText(speaker, text)
+			if not filtered then
+				msgSelf("error", "Message blocked by content filter.")
+				return
+			end
+
+			local payload = {
+				title = "Message From " .. speaker.Name,
+				subtitle = "Global Announcement",
+				text = filtered,
+				duration = 8,
+				senderUserId = speaker.UserId,
+				senderName = speaker.Name,
+				timestamp = os.time(),
+			}
+
+			-- Publish globally
+			local success, err = pcall(function()
+				MessagingService:PublishAsync("GlobalAdminAnnouncement", payload)
+			end)
+			if not success then
+				msgSelf("error", "Failed to send global message: " .. tostring(err))
+				return
+			end
+			msgSelf("info", "Sending Global announcement please wait..")
+			task.wait(1.45)
+			msgSelf("info", "Global announcement sent!")
+
+			-- Also show locally in this server
+			local evt = main.Remotes and main.Remotes.AdminAnnouncement
+			if evt and evt:IsA("RemoteEvent") then
+				evt:FireAllClients(payload)
+			end
+
+			if main and typeof(main.addLog) == "function" then
+				pcall(function() main.addLog(speaker, ";globalmessage " .. filtered) end)
+			end
 		end,
 	})
 
