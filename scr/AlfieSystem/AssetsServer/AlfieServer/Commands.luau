@@ -1932,6 +1932,73 @@ return function(main, settings)
 			msgSelf("info", "Gravity has been set to " .. tostring(newGravity) .. ".")
 		end,
 	})
+	
+	table.insert(commands, {
+		Name = "shutdown",
+		Aliases = {},
+		Prefixes = { settings.Prefix },
+		Rank = 3,
+		RankLock = false,
+		Tags = { "utility", "server" },
+		Args = {},
+		Function = function(speaker, args)
+			local function msgSelf(kind, text)
+				local evt = main.Remotes and main.Remotes.AdminMessage
+				if evt and evt:IsA("RemoteEvent") then
+					evt:FireClient(speaker, { header = "Shutdown", kind = kind, text = text })
+				end
+			end
+
+			msgSelf("info", "Shutting down server...")
+
+			-- Optional logging
+			if main and typeof(main.addLog) == "function" then
+				pcall(function() main.addLog(speaker, ";shutdown ") end)
+			end
+
+			-- Optionally stop the server (Datamodel close)
+			task.delay(3, function()
+				pcall(function()
+					for _, player in ipairs(game.Players:GetPlayers()) do
+						player:Kick("The server was shutdown by " .. speaker.Name)
+					end
+				end)
+			end)
+		end,
+	})
+	
+	table.insert(commands, {
+		Name = "restart",
+		Aliases = {"reboot"},
+		Prefixes = { settings.Prefix },
+		Rank = 3,
+		RankLock = false,
+		Tags = { "utility", "server" },
+		Args = {},
+		Function = function(speaker, args)
+			local function msgSelf(kind, text)
+				local evt = main.Remotes and main.Remotes.AdminMessage
+				if evt and evt:IsA("RemoteEvent") then
+					evt:FireClient(speaker, { header = "restart", kind = kind, text = text })
+				end
+			end
+
+			msgSelf("info", "restarting server...")
+
+			-- Optional logging
+			if main and typeof(main.addLog) == "function" then
+				pcall(function() main.addLog(speaker, ";restart ") end)
+			end
+
+			task.delay(3, function()
+				pcall(function()
+					for _, player in ipairs(game.Players:GetPlayers()) do
+						game:GetService("TeleportService"):Teleport(game.PlaceId, player)
+					end
+				end)
+			end)
+		end,
+	})
 
 	return commands
 end
